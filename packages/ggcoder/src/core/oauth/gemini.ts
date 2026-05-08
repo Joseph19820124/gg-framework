@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import { generatePKCE } from "./pkce.js";
 import type { OAuthCredentials, OAuthLoginCallbacks } from "./types.js";
 
@@ -28,7 +27,6 @@ const SCOPES = [
  */
 export async function loginGemini(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> {
   const { verifier, challenge } = await generatePKCE();
-  const state = crypto.randomBytes(32).toString("hex");
 
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
@@ -36,7 +34,6 @@ export async function loginGemini(callbacks: OAuthLoginCallbacks): Promise<OAuth
     redirect_uri: REDIRECT_URI,
     scope: SCOPES,
     access_type: "offline",
-    state,
     code_challenge: challenge,
     code_challenge_method: "S256",
   });
@@ -45,9 +42,7 @@ export async function loginGemini(callbacks: OAuthLoginCallbacks): Promise<OAuth
   callbacks.onOpenUrl(authUrl);
   callbacks.onStatus("Opening browser for Google sign-in...");
 
-  const raw = await callbacks.onPromptCode(
-    "Paste the authorization code from the browser:",
-  );
+  const raw = await callbacks.onPromptCode("Paste the authorization code from the browser:");
 
   const code = raw.trim();
   if (!code) {
@@ -57,10 +52,7 @@ export async function loginGemini(callbacks: OAuthLoginCallbacks): Promise<OAuth
   return exchangeGeminiCode(code, verifier);
 }
 
-async function exchangeGeminiCode(
-  code: string,
-  verifier: string,
-): Promise<OAuthCredentials> {
+async function exchangeGeminiCode(code: string, verifier: string): Promise<OAuthCredentials> {
   const response = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
