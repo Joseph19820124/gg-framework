@@ -48,6 +48,7 @@ import { createRequire } from "node:module";
 import { renderApp } from "./ui/render.js";
 import { runJsonMode } from "./modes/json-mode.js";
 import { runRpcMode } from "./modes/rpc-mode.js";
+import { runAcpMode } from "./modes/acp-mode.js";
 import { runServeMode } from "./modes/serve-mode.js";
 import { runAgentHomeMode } from "./modes/agent-home-mode.js";
 import { renderLoginSelector } from "./ui/login.js";
@@ -73,6 +74,7 @@ import { discoverSkills } from "./core/skills.js";
 import path from "node:path";
 import { loginAnthropic } from "./core/oauth/anthropic.js";
 import { loginOpenAI } from "./core/oauth/openai.js";
+import { loginGemini } from "./core/oauth/gemini.js";
 import type { OAuthCredentials, OAuthLoginCallbacks } from "./core/oauth/types.js";
 import chalk from "chalk";
 import { checkAndAutoUpdate } from "./core/auto-update.js";
@@ -168,13 +170,14 @@ function printHelp(): void {
     ["-v, --version", "Show version number"],
     [
       "--provider <name>",
-      "AI provider (anthropic, xiaomi, openai, glm, moonshot, minimax, deepseek, openrouter)",
+      "AI provider (anthropic, xiaomi, openai, glm, moonshot, minimax, deepseek, openrouter, gemini)",
     ],
     ["--model <name>", "Model to use (e.g. claude-sonnet-4-6, gpt-5.5)"],
     ["--max-turns <n>", "Maximum agent turns per prompt"],
     ["--system-prompt <text>", "Override the system prompt"],
     ["--json", "JSON output mode (for sub-agents)"],
     ["--rpc", "JSON-RPC mode (for IDE integrations)"],
+    ["--acp", "ACP mode (Agent Client Protocol — for OpenAB)"],
   ];
   for (const [flag, desc] of opts) {
     console.log(`  ${accent(flag.padEnd(24))} ${dim(desc)}`);
@@ -351,6 +354,7 @@ function main(): void {
       version: { type: "boolean", short: "v" },
       json: { type: "boolean" },
       rpc: { type: "boolean" },
+      acp: { type: "boolean" },
       provider: { type: "string" },
       model: { type: "string" },
       "max-turns": { type: "string" },
@@ -410,6 +414,22 @@ function main(): void {
     return;
   }
 
+  // ACP mode — Agent Client Protocol for OpenAB integration
+  if (values.acp) {
+    const acpProvider = values.provider as Provider | undefined;
+    const acpModel = values.model;
+    const cwd = process.cwd();
+    runAcpMode({
+      provider: acpProvider,
+      model: acpModel,
+      cwd,
+    }).catch((err: unknown) => {
+      process.stderr.write(formatUserError(err) + "\n");
+      process.exit(1);
+    });
+    return;
+  }
+
   // Load saved settings for model/provider persistence
   const saved = loadSavedSettings();
   const savedTheme = saved.theme;
@@ -423,6 +443,7 @@ function main(): void {
     if (p === "minimax") return "MiniMax-M2.7";
     if (p === "deepseek") return "deepseek-v4-pro";
     if (p === "openrouter") return "qwen/qwen3.6-plus";
+    if (p === "gemini") return "gemini-3.1-pro-preview";
     return "claude-opus-4-7";
   }
 
@@ -796,6 +817,27 @@ async function runLogin(): Promise<void> {
         expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000 * 100, // ~100 years
         ...(provider === "xiaomi" ? { baseUrl: "https://token-plan-sgp.xiaomimimo.com/v1" } : {}),
       } satisfies OAuthCredentials;
+    } else if (provider === "gemini") {
+      // Gemini supports both OAuth and API key
+      console.log(chalk.hex("#60a5fa")("\nChoose login method:"));
+      console.log(chalk.hex("#93c5fd")("  1. Sign in with Google (OAuth — recommended)"));
+      console.log(chalk.hex("#93c5fd")("  2. Use Gemini API Key"));
+      const choice = await rl.question(chalk.hex("#60a5fa")("Select (1 or 2): "));
+
+      if (choice.trim() === "2") {
+        const apiKey = await rl.question(chalk.hex("#60a5fa")("Paste your Google Gemini API key: "));
+        if (!apiKey.trim()) {
+          console.log(chalk.hex("#ef4444")("No API key provided. Login cancelled."));
+          return;
+        }
+        creds = {
+          accessToken: apiKey.trim(),
+          refreshToken: "",
+          expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000 * 100, // ~100 years
+        } satisfies OAuthCredentials;
+      } else {
+        creds = await loginGemini(callbacks);
+      }
     } else {
       creds =
         provider === "anthropic" ? await loginAnthropic(callbacks) : await loginOpenAI(callbacks);
@@ -1111,6 +1153,8 @@ async function runSessions(): Promise<void> {
     if (p === "moonshot") return "kimi-k2.6";
     if (p === "minimax") return "MiniMax-M2.7";
     if (p === "deepseek") return "deepseek-v4-pro";
+    if (p === "openrouter") return "qwen/qwen3.6-plus";
+    if (p === "gemini") return "gemini-3.1-pro-preview";
     return "claude-opus-4-7";
   }
 
@@ -1640,6 +1684,7 @@ function defaultModelFor(p: string): string {
   if (p === "minimax") return "MiniMax-M2.7";
   if (p === "deepseek") return "deepseek-v4-pro";
   if (p === "openrouter") return "qwen/qwen3.6-plus";
+  if (p === "gemini") return "gemini-3.1-pro-preview";
   return "claude-opus-4-7";
 }
 
@@ -1699,6 +1744,7 @@ async function resolveActiveProvider(
     "minimax",
     "deepseek",
     "openrouter",
+    "gemini",
   ];
   const loggedInProviders: Provider[] = [];
   for (const p of allProviders) {
@@ -1732,6 +1778,7 @@ function displayName(provider: Provider): string {
   if (provider === "minimax") return "MiniMax";
   if (provider === "deepseek") return "DeepSeek";
   if (provider === "openrouter") return "OpenRouter";
+  if (provider === "gemini") return "Google Gemini";
   return "OpenAI";
 }
 

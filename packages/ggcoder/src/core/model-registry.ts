@@ -201,6 +201,37 @@ export const MODELS: ModelInfo[] = [
     supportsImages: false,
     costTier: "low",
   },
+  // ── Google Gemini ──────────────────────────────────────
+  {
+    id: "gemini-3.1-pro-preview",
+    name: "Gemini 3.1 Pro (Preview)",
+    provider: "gemini",
+    contextWindow: 1_048_576,
+    maxOutputTokens: 65_536,
+    supportsThinking: true,
+    supportsImages: true,
+    costTier: "high",
+  },
+  {
+    id: "gemini-3-flash-preview",
+    name: "Gemini 3 Flash (Preview)",
+    provider: "gemini",
+    contextWindow: 1_048_576,
+    maxOutputTokens: 65_536,
+    supportsThinking: true,
+    supportsImages: true,
+    costTier: "low",
+  },
+  {
+    id: "gemini-3.1-flash-lite",
+    name: "Gemini 3.1 Flash Lite",
+    provider: "gemini",
+    contextWindow: 1_048_576,
+    maxOutputTokens: 65_535,
+    supportsThinking: true,
+    supportsImages: true,
+    costTier: "low",
+  },
   // ── OpenRouter ─────────────────────────────────────────
   {
     id: "qwen/qwen3.6-plus",
@@ -230,6 +261,7 @@ export function getDefaultModel(provider: Provider): ModelInfo {
   if (provider === "minimax") return MODELS.find((m) => m.id === "MiniMax-M2.7")!;
   if (provider === "deepseek") return MODELS.find((m) => m.id === "deepseek-v4-pro")!;
   if (provider === "openrouter") return MODELS.find((m) => m.id === "qwen/qwen3.6-plus")!;
+  if (provider === "gemini") return MODELS.find((m) => m.id === "gemini-3.1-pro-preview")!;
   return MODELS.find((m) => m.id === "claude-sonnet-4-6")!;
 }
 
@@ -249,7 +281,7 @@ export function getSummaryModel(provider: Provider, currentModelId: string): Mod
   if (provider === "anthropic") {
     return MODELS.find((m) => m.id === "claude-sonnet-4-6")!;
   }
-  if (provider === "openai" || provider === "glm" || provider === "deepseek") {
+  if (provider === "openai" || provider === "glm" || provider === "deepseek" || provider === "gemini") {
     const low = getModelsForProvider(provider).find((m) => m.costTier === "low");
     if (low) return low;
   }

@@ -66,6 +66,15 @@ providerRegistry.register("openrouter", {
     }),
 });
 
+providerRegistry.register("gemini", {
+  stream: (options) =>
+    streamOpenAI({
+      ...options,
+      baseUrl: options.baseUrl ?? "https://generativelanguage.googleapis.com/v1beta/openai",
+      webSearch: false,
+    }),
+});
+
 providerRegistry.register("minimax", {
   stream: (options) =>
     streamAnthropic({
