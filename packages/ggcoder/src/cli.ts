@@ -825,7 +825,9 @@ async function runLogin(): Promise<void> {
       const choice = await rl.question(chalk.hex("#60a5fa")("Select (1 or 2): "));
 
       if (choice.trim() === "2") {
-        const apiKey = await rl.question(chalk.hex("#60a5fa")("Paste your Google Gemini API key: "));
+        const apiKey = await rl.question(
+          chalk.hex("#60a5fa")("Paste your Google Gemini API key: "),
+        );
         if (!apiKey.trim()) {
           console.log(chalk.hex("#ef4444")("No API key provided. Login cancelled."));
           return;
