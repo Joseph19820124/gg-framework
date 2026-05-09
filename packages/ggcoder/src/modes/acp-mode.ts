@@ -34,9 +34,12 @@ interface SessionState {
   session: AgentSession;
   abortController: AbortController;
   lastActiveAt: number;
+  isPrompting: boolean;
 }
 
-const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+// Match OpenAB's pool defaults: 4-hour TTL, 10 concurrent sessions max.
+const SESSION_TTL_MS = 4 * 60 * 60 * 1000;
+const MAX_SESSIONS = 10;
 
 // ── Tool name → ACP ToolKind mapping ───────────────────────
 
@@ -171,7 +174,12 @@ class GGCoderAgent implements acp.Agent {
 
     await session.initialize();
 
-    this.sessions.set(sessionId, { session, abortController: ac, lastActiveAt: Date.now() });
+    this.sessions.set(sessionId, {
+      session,
+      abortController: ac,
+      lastActiveAt: Date.now(),
+      isPrompting: false,
+    });
     this.evictStaleSessions();
 
     // Build available models list for ACP
@@ -201,6 +209,7 @@ class GGCoderAgent implements acp.Agent {
     }
 
     state.lastActiveAt = Date.now();
+    state.isPrompting = true;
     const { session, abortController } = state;
 
     // Reset abort controller for new prompt
@@ -230,6 +239,8 @@ class GGCoderAgent implements acp.Agent {
         return { stopReason: "cancelled" };
       }
       throw err;
+    } finally {
+      state.isPrompting = false;
     }
   }
 
@@ -251,10 +262,26 @@ class GGCoderAgent implements acp.Agent {
 
   private evictStaleSessions(): void {
     const cutoff = Date.now() - SESSION_TTL_MS;
+
+    // First pass: evict idle sessions past TTL (skip active ones).
     for (const [id, state] of this.sessions) {
-      if (state.lastActiveAt < cutoff) {
+      if (!state.isPrompting && state.lastActiveAt < cutoff) {
         this.cleanupSession(id);
       }
+    }
+
+    // Second pass: if still at capacity, evict the LRU idle session.
+    while (this.sessions.size >= MAX_SESSIONS) {
+      let lruId: string | undefined;
+      let lruTime = Infinity;
+      for (const [id, state] of this.sessions) {
+        if (!state.isPrompting && state.lastActiveAt < lruTime) {
+          lruTime = state.lastActiveAt;
+          lruId = id;
+        }
+      }
+      if (!lruId) break; // all remaining sessions are active — cannot evict
+      this.cleanupSession(lruId);
     }
   }
 
