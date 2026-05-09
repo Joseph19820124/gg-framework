@@ -33,7 +33,10 @@ export interface AcpModeOptions {
 interface SessionState {
   session: AgentSession;
   abortController: AbortController;
+  lastActiveAt: number;
 }
+
+const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 // ── Tool name → ACP ToolKind mapping ───────────────────────
 
@@ -168,7 +171,8 @@ class GGCoderAgent implements acp.Agent {
 
     await session.initialize();
 
-    this.sessions.set(sessionId, { session, abortController: ac });
+    this.sessions.set(sessionId, { session, abortController: ac, lastActiveAt: Date.now() });
+    this.evictStaleSessions();
 
     // Build available models list for ACP
     const availableModels = MODELS.map((m) => ({
@@ -196,6 +200,7 @@ class GGCoderAgent implements acp.Agent {
       throw new acp.RequestError(-32602, `Session not found: ${params.sessionId}`);
     }
 
+    state.lastActiveAt = Date.now();
     const { session, abortController } = state;
 
     // Reset abort controller for new prompt
@@ -241,6 +246,15 @@ class GGCoderAgent implements acp.Agent {
     if (state) {
       state.session.eventBus.removeAllListeners();
       this.sessions.delete(sessionId);
+    }
+  }
+
+  private evictStaleSessions(): void {
+    const cutoff = Date.now() - SESSION_TTL_MS;
+    for (const [id, state] of this.sessions) {
+      if (state.lastActiveAt < cutoff) {
+        this.cleanupSession(id);
+      }
     }
   }
 
