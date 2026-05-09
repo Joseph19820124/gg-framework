@@ -65,6 +65,7 @@ const VALID_PROVIDERS = new Set<Provider>([
   "minimax",
   "deepseek",
   "openrouter",
+  "gemini",
 ]);
 
 function isValidProvider(value: unknown): value is Provider {

@@ -42,6 +42,11 @@ const PROVIDERS: { label: string; value: Provider; description: string }[] = [
   { label: "Xiaomi (MiMo)", value: "xiaomi", description: "MiMo-V2-Pro" },
   { label: "DeepSeek", value: "deepseek", description: "DeepSeek V4 Pro, V4 Flash" },
   { label: "OpenRouter", value: "openrouter", description: "Qwen3.6-Plus, multi-provider gateway" },
+  {
+    label: "Google Gemini",
+    value: "gemini",
+    description: "Gemini 3.1 Pro, 3 Flash, 3.1 Flash Lite",
+  },
 ];
 
 function gradientLine(text: string): string {

@@ -8,5 +8,6 @@
  */
 export { loginAnthropic, refreshAnthropicToken } from "../oauth/anthropic.js";
 export { loginOpenAI, refreshOpenAIToken } from "../oauth/openai.js";
+export { loginGemini, refreshGeminiToken } from "../oauth/gemini.js";
 export type { OAuthCredentials, OAuthLoginCallbacks } from "../oauth/types.js";
 export { AuthStorage, NotLoggedInError } from "../auth-storage.js";
