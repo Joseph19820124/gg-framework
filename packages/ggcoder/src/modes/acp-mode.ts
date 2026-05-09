@@ -77,10 +77,7 @@ class GGCoderAgent implements acp.Agent {
   private defaultCwd: string;
   private apiKey?: string;
 
-  constructor(
-    connection: acp.AgentSideConnection,
-    opts: AcpModeOptions,
-  ) {
+  constructor(connection: acp.AgentSideConnection, opts: AcpModeOptions) {
     this.connection = connection;
     this.defaultProvider = opts.provider ?? "anthropic";
     this.defaultModel = opts.model ?? "claude-opus-4-7";
@@ -89,9 +86,7 @@ class GGCoderAgent implements acp.Agent {
 
   // ── Agent interface ──────────────────────────────────────
 
-  async initialize(
-    _params: acp.InitializeRequest,
-  ): Promise<acp.InitializeResponse> {
+  async initialize(_params: acp.InitializeRequest): Promise<acp.InitializeResponse> {
     return {
       protocolVersion: acp.PROTOCOL_VERSION,
       authMethods: [
@@ -117,16 +112,10 @@ class GGCoderAgent implements acp.Agent {
     };
   }
 
-  async authenticate(
-    params: acp.AuthenticateRequest,
-  ): Promise<acp.AuthenticateResponse> {
+  async authenticate(params: acp.AuthenticateRequest): Promise<acp.AuthenticateResponse> {
     // Extract API key from _meta if present (OpenAB sends it here)
-    const meta = (params as unknown as { _meta?: Record<string, unknown> })
-      ._meta;
-    const apiKey =
-      typeof meta?.["api-key"] === "string"
-        ? (meta["api-key"] as string)
-        : undefined;
+    const meta = (params as unknown as { _meta?: Record<string, unknown> })._meta;
+    const apiKey = typeof meta?.["api-key"] === "string" ? (meta["api-key"] as string) : undefined;
 
     if (apiKey) {
       this.apiKey = apiKey;
@@ -138,9 +127,7 @@ class GGCoderAgent implements acp.Agent {
         const paths = await ensureAppDirs();
         const authStorage = new AuthStorage(paths.authFile);
         await authStorage.load();
-        const creds = await authStorage.resolveCredentials(
-          this.defaultProvider,
-        );
+        const creds = await authStorage.resolveCredentials(this.defaultProvider);
         this.apiKey = creds.accessToken;
       } catch {
         // No stored credentials — the session will fail if provider requires auth
@@ -150,9 +137,7 @@ class GGCoderAgent implements acp.Agent {
     return {};
   }
 
-  async newSession(
-    params: acp.NewSessionRequest,
-  ): Promise<acp.NewSessionResponse> {
+  async newSession(params: acp.NewSessionRequest): Promise<acp.NewSessionResponse> {
     const sessionId = randomUUID();
     const cwd = params.cwd ?? this.defaultCwd;
     const ac = new AbortController();
@@ -208,10 +193,7 @@ class GGCoderAgent implements acp.Agent {
   async prompt(params: acp.PromptRequest): Promise<acp.PromptResponse> {
     const state = this.sessions.get(params.sessionId);
     if (!state) {
-      throw new acp.RequestError(
-        -32602,
-        `Session not found: ${params.sessionId}`,
-      );
+      throw new acp.RequestError(-32602, `Session not found: ${params.sessionId}`);
     }
 
     const { session, abortController } = state;
@@ -250,12 +232,19 @@ class GGCoderAgent implements acp.Agent {
     const state = this.sessions.get(params.sessionId);
     if (state) {
       state.abortController.abort();
+      this.cleanupSession(params.sessionId);
     }
   }
 
-  async setSessionMode(
-    _params: acp.SetSessionModeRequest,
-  ): Promise<acp.SetSessionModeResponse> {
+  private cleanupSession(sessionId: string): void {
+    const state = this.sessions.get(sessionId);
+    if (state) {
+      state.session.eventBus.removeAllListeners();
+      this.sessions.delete(sessionId);
+    }
+  }
+
+  async setSessionMode(_params: acp.SetSessionModeRequest): Promise<acp.SetSessionModeResponse> {
     // We only support "code" mode — no-op
     return {};
   }
@@ -263,92 +252,84 @@ class GGCoderAgent implements acp.Agent {
   // ── Private helpers ──────────────────────────────────────
 
   private wireSessionEvents(sessionId: string, session: AgentSession): void {
-    // Forward agent text as ACP agent_message_chunk
-    session.eventBus.on("text_delta", async (p: { text: string }) => {
-      await this.connection.sessionUpdate({
-        sessionId,
-        update: {
-          sessionUpdate: "agent_message_chunk",
-          content: {
-            type: "text",
-            text: p.text,
-          },
-        },
-      });
-    });
+    // Track toolCallId across start→end so the ACP update references the same ID.
+    const pendingToolIds = new Map<string, string>();
 
-    // Forward thinking as agent_thought_chunk
-    session.eventBus.on("thinking_delta", async (p: { text: string }) => {
-      await this.connection.sessionUpdate({
-        sessionId,
-        update: {
-          sessionUpdate: "agent_thought_chunk",
-          content: {
-            type: "text",
-            text: p.text,
-          },
-        },
-      });
-    });
-
-    // Forward tool call start
-    session.eventBus.on(
-      "tool_call_start",
-      async (p: {
-        toolCallId: string;
-        name: string;
-        args: Record<string, unknown>;
-      }) => {
-        await this.connection.sessionUpdate({
-          sessionId,
-          update: {
-            sessionUpdate: "tool_call",
-            toolCallId: p.toolCallId ?? randomUUID(),
-            title: toolTitle(p.name, p.args),
-            kind: toolKind(p.name),
-            status: "in_progress",
-          },
-        });
-      },
-    );
-
-    // Forward tool call end
-    session.eventBus.on(
-      "tool_call_end",
-      async (p: {
-        toolCallId: string;
-        result: string;
-        isError: boolean;
-        durationMs: number;
-      }) => {
-        await this.connection.sessionUpdate({
-          sessionId,
-          update: {
-            sessionUpdate: "tool_call_update",
-            toolCallId: p.toolCallId ?? randomUUID(),
-            status: p.isError ? "failed" : "completed",
-            rawOutput: p.result ? p.result : undefined,
-          },
-        });
-      },
-    );
-
-    // Forward errors
-    session.eventBus.on(
-      "error",
-      async ({ error }: { error: Error }) => {
-        await this.connection.sessionUpdate({
+    session.eventBus.on("text_delta", (p: { text: string }) => {
+      this.connection
+        .sessionUpdate({
           sessionId,
           update: {
             sessionUpdate: "agent_message_chunk",
-            content: {
-              type: "text",
-              text: `Error: ${error.message}`,
-            },
+            content: { type: "text", text: p.text },
           },
-        });
+        })
+        .catch(() => {});
+    });
+
+    session.eventBus.on("thinking_delta", (p: { text: string }) => {
+      this.connection
+        .sessionUpdate({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_thought_chunk",
+            content: { type: "text", text: p.text },
+          },
+        })
+        .catch(() => {});
+    });
+
+    session.eventBus.on(
+      "tool_call_start",
+      (p: { toolCallId: string; name: string; args: Record<string, unknown> }) => {
+        const acpId = p.toolCallId ?? randomUUID();
+        if (p.toolCallId) pendingToolIds.set(p.toolCallId, acpId);
+        this.connection
+          .sessionUpdate({
+            sessionId,
+            update: {
+              sessionUpdate: "tool_call",
+              toolCallId: acpId,
+              title: toolTitle(p.name, p.args),
+              kind: toolKind(p.name),
+              status: "in_progress",
+            },
+          })
+          .catch(() => {});
       },
     );
+
+    session.eventBus.on(
+      "tool_call_end",
+      (p: { toolCallId: string; result: string; isError: boolean; durationMs: number }) => {
+        const acpId =
+          (p.toolCallId && pendingToolIds.get(p.toolCallId)) ?? p.toolCallId ?? randomUUID();
+        if (p.toolCallId) pendingToolIds.delete(p.toolCallId);
+        this.connection
+          .sessionUpdate({
+            sessionId,
+            update: {
+              sessionUpdate: "tool_call_update",
+              toolCallId: acpId,
+              status: p.isError ? "failed" : "completed",
+              rawOutput: p.result ? p.result : undefined,
+            },
+          })
+          .catch(() => {});
+      },
+    );
+
+    session.eventBus.on("error", ({ error }: { error: Error }) => {
+      this.connection
+        .sessionUpdate({
+          sessionId,
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: `Error: ${error.message}` },
+          },
+        })
+        .catch(() => {});
+    });
   }
 }
 
@@ -373,10 +354,7 @@ export async function runAcpMode(opts: AcpModeOptions = {}): Promise<void> {
   const stream = acp.ndJsonStream(output, input);
 
   // Start the ACP agent-side connection
-  const conn = new acp.AgentSideConnection(
-    (conn) => new GGCoderAgent(conn, opts),
-    stream,
-  );
+  const conn = new acp.AgentSideConnection((conn) => new GGCoderAgent(conn, opts), stream);
 
   // Keep process alive until connection closes
   await conn.closed;

@@ -227,7 +227,7 @@ export const MODELS: ModelInfo[] = [
     name: "Gemini 3.1 Flash Lite",
     provider: "gemini",
     contextWindow: 1_048_576,
-    maxOutputTokens: 65_535,
+    maxOutputTokens: 65_536,
     supportsThinking: true,
     supportsImages: true,
     costTier: "low",
@@ -281,7 +281,12 @@ export function getSummaryModel(provider: Provider, currentModelId: string): Mod
   if (provider === "anthropic") {
     return MODELS.find((m) => m.id === "claude-sonnet-4-6")!;
   }
-  if (provider === "openai" || provider === "glm" || provider === "deepseek" || provider === "gemini") {
+  if (
+    provider === "openai" ||
+    provider === "glm" ||
+    provider === "deepseek" ||
+    provider === "gemini"
+  ) {
     const low = getModelsForProvider(provider).find((m) => m.costTier === "low");
     if (low) return low;
   }
